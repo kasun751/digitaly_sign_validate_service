@@ -1,4 +1,6 @@
 import hashlib
+import random
+import string
 
 CHAR_SET = "OPQXYZabcqrstDEFGHIuvwxyz01234defghiRSTUVWjklmnop56789ABCJKLMN"
 
@@ -13,5 +15,6 @@ def genIdByEmail(input_value, length=32):
     return ''.join(id_chars)
 
 
-unique_id = genIdByEmail("kasun@exampleasdasdasd.com")  # Input that never changes
-print("Unique ID:", unique_id)
+def generate_random_string(length=12):
+    chars = string.ascii_letters + string.digits  # a-zA-Z0-9
+    return ''.join(random.choice(chars) for _ in range(length))

@@ -1,5 +1,5 @@
 from .jwtTokenHandler import *
 from .getDetailsFromValidateToken import *
-from .generateIdByEmail import *
+from .idGenerator import *
 from .fileUtills import *
 from .pdfMetaDataExtractor import *

@@ -1,8 +1,9 @@
 import os
 import requests
 import uuid
-from .generateIdByEmail import genIdByEmail
+from .idGenerator import genIdByEmail, generate_random_string
 from firebase_admin import storage
+from flask import request, jsonify
 
 
 def checkFileAvailability(path):
@@ -93,3 +94,14 @@ def upload_pdf_to_firebase(input_pdf_location):
     except Exception as e:
         print("Error uploading PDF:", e)
         return None
+
+
+def save_file_in_local():
+    if 'pdf' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return ""
+    fileName = generate_random_string()
+    file.save(f"temp_download/{fileName}")
+    return fileName

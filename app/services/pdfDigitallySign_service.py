@@ -5,8 +5,8 @@ from pyhanko import stamp
 from pyhanko.pdf_utils import images
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign import fields, signers
-from ..utils.fileUtills import upload_pdf_to_firebase
-
+from flask import send_file
+from io import BytesIO
 
 from ..utils import (
     removeUnWantedFiles,
@@ -20,9 +20,9 @@ from ..config import firebase_config  # ensures firebase_admin.initialize_app() 
 
 class PDFDigitallySigner:
     def __init__(
-        self, input_pdf_url, signer_email, stamp_image_path,
-        signature_field_name='Signature',
-        signature_box=(375, 700, 575, 762)
+            self, input_pdf_url, signer_email, stamp_image_path,
+            signature_field_name='Signature',
+            signature_box=(375, 700, 575, 762)
     ):
         self.signer_email = signer_email
         self.unique_id = genIdByEmail(signer_email)
@@ -102,23 +102,22 @@ class PDFDigitallySigner:
                     )
                 )
 
-                os.makedirs(os.path.dirname(self.input_pdf_location), exist_ok=True)
+                # Instead of writing to disk, write to BytesIO
+                signed_pdf_io = BytesIO()
+                pdf_signer.sign_pdf(w, output=signed_pdf_io)
+                signed_pdf_io.seek(0)
 
-                with open(self.input_pdf_location, 'wb') as outf:
-                    pdf_signer.sign_pdf(w, output=outf)
+                # removeUnWantedFiles(self.input_fixed_pdf)
+                # removeUnWantedFiles(self.input_pdf_url)
+                # removeUnWantedFiles(self.input_pdf_location)
 
-            public_url = upload_pdf_to_firebase(self.input_pdf_location)
-
-            # Clean up temp files
-            removeUnWantedFiles(self.input_fixed_pdf)
-            removeUnWantedFiles(self.input_pdf_url)
-            removeUnWantedFiles(self.input_pdf_location)
-
-            return {
-                "type": "success",
-                "message": "Successfully signed and uploaded PDF.",
-                "firebase_url": public_url
-            }
+            # Return signed PDF as Flask response
+            return send_file(
+                signed_pdf_io,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name='signed_document.pdf'
+            )
 
         except Exception as e:
             import traceback
@@ -131,20 +130,3 @@ class PDFDigitallySigner:
             return res1, None
         res2 = self.sign_pdf()
         return res1, res2
-
-
-# Example usage
-# if __name__ == "__main__":
-#     signer = PDFDigitallySigner(
-#         input_pdf_url="https://firebasestorage.googleapis.com/v0/b/uvaexplore.firebasestorage.app/o/toSignDocs%2F1748683475453_A1.pdf?alt=media&token=ca8ff202-bed8-4779-8857-c754a30b5b5a",
-#         # You can use a local file or URL here
-#         input_pdf_location="outputs/document-signed1.pdf",
-#         input_fixed_pdf="unSignDocuments/final_fixed.pdf",
-#         private_key_path="pemFiles/private_key_123456.pem",
-#         cert_path="pemFiles/cert_123456.pem",
-#         ca_chain_paths=["pemFiles/ca_chain_123456.pem"],
-#         stamp_image_path="static/imgs/stamp.png"
-#     )
-#     res1, res2 = signer.run()
-#     print(res1)
-#     print(res2)
