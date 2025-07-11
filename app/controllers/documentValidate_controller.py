@@ -22,10 +22,10 @@ from ..services import PDFVerifier
 
 def documentVarify():
     try:
-        if 'pdf_file' not in request.files:
+        if 'pdfFile' not in request.files:
             return jsonify({"error": "Missing file"}), 400
 
-        file = request.files['pdf_file']
+        file = request.files['pdfFile']
 
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400

@@ -5,7 +5,7 @@ from PyPDF2 import PdfReader
 
 # from PyPDF2 import PdfReader
 
-def extract_name_from_pdf(pdf_path: str) -> str | None:
+def extract_name_from_pdf(pdf_path: str) -> dict:
     try:
         reader = PdfReader(pdf_path)
         print("PDF loaded.")
@@ -24,28 +24,14 @@ def extract_name_from_pdf(pdf_path: str) -> str | None:
                     name = signature_dict.get("/Name")
                     if name:
                         print("Name found:", name)
-                        return name
+                        return {"error": False, "message": name}
+                    else:
+                        return {"error": True, "message": "Not Found Email"}
 
         else:
             print("No AcroForm found.")
-
-        return None
+            return {"error": True, "message": "Signature Not Found."}
 
     except Exception as e:
         print(f"Error extracting name from PDF: {e}")
-        return None
-
-# def checkFileAvailabilitya(path):
-#     if path is None:
-#         return None
-#     if os.path.isfile(path):
-#         return True
-#     else:
-#         return False
-
-
-# pdf_path = "E:/Learning/testing_project_2/digitaly-sign-validate-service/outputs/document" \
-#            "-signed_DcVHdIhpmJRfxkCzE2oU6YslA5YnGSXG.pdf"
-#
-# email = extract_name_from_pdf(pdf_path)
-# print("Signer Email Address:", email)
+        return {"error": True, "message": f"Error extracting name from PDF: {e}"}

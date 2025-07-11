@@ -42,20 +42,30 @@ def downloadPdf(pdf_url):
 #         removeUnWantedFiles(self.signed_pdf_path)
 #         return status.pretty_print_details()
 
+def save_uploaded_file(file):
+    local_path = f"outputs/temp_uploaded_{genIdByEmail(file.filename)}.pdf"
+    file.save(local_path)
+    return local_path
+
+
 class PDFVerifier:
     def __init__(self, signed_pdf_file):
         # Save uploaded file to local temp path
-        self.signed_pdf_path = self.save_uploaded_file(signed_pdf_file)
+        self.signed_pdf_path = save_uploaded_file(signed_pdf_file)
 
         # Extract signer info, same as before
-        self.signer_email = extract_name_from_pdf(self.signed_pdf_path)
+        # self.signer_email = extract_name_from_pdf(self.signed_pdf_path)
+        try:
+            response = extract_name_from_pdf(self.signed_pdf_path)
+            if response["error"]:
+                return response["message"]
+            else:
+                self.signer_email = response["message"]
+        except Exception as e:
+            return f"Error while Extracting Signer Email: {e}"
+
         self.unique_id = genIdByEmail(self.signer_email)
         self.root_cert_path = "pemFiles/root_cert_" + self.unique_id + ".pem"
-
-    def save_uploaded_file(self, file):
-        local_path = f"outputs/temp_uploaded_{genIdByEmail(file.filename)}.pdf"
-        file.save(local_path)
-        return local_path
 
     def load_root_cert(self):
         return load_cert_from_pemder(self.root_cert_path)
@@ -76,4 +86,3 @@ class PDFVerifier:
         status = self.validate_signature()
         removeUnWantedFiles(self.signed_pdf_path)
         return status.pretty_print_details()
-

@@ -69,15 +69,38 @@ def findCertAvailability(signer_email, path="pemFiles/"):
     return True, "message: All Certs are Available"
 
 
+# def download_pdf_from_url(url):
+#     try:
+#         unique_filename = f"temp_{uuid.uuid4().hex}.pdf"
+#         response = requests.get(url)
+#         response.raise_for_status()
+#         file_path = 'temp_download/' + unique_filename
+#         with open(file_path, 'wb') as f:
+#             f.write(response.content)
+#         return file_path
+#     except Exception as e:
+#         print("Error downloading PDF:", e)
+#         return None
+
 def download_pdf_from_url(url):
     try:
+        # Make sure the temp directory exists
+        temp_dir = 'temp_download'
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Use a unique filename
         unique_filename = f"temp_{uuid.uuid4().hex}.pdf"
-        response = requests.get(url)
-        response.raise_for_status()
-        file_path = 'temp_download/' + unique_filename
-        with open(file_path, 'wb') as f:
-            f.write(response.content)
+        file_path = os.path.join(temp_dir, unique_filename)
+
+        # Download with streaming for large files
+        with requests.get(url, stream=True) as response:
+            response.raise_for_status()
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
         return file_path
+
     except Exception as e:
         print("Error downloading PDF:", e)
         return None

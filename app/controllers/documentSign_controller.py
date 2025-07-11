@@ -7,11 +7,13 @@ from ..services import PDFDigitallySigner
 
 def signDocument():
     payload = getTokenData()
+    print(payload)
     if not payload['status']:
         return jsonify({"error": "Invalid token"}), 401
-
+    print(request.form)
     signer_email = payload["signer_email"]
-    input_pdf_url = request.form["pdf_url"]
+    data = request.get_json()
+    input_pdf_url = data.get("pdfUrl")
 
     try:
         signer = PDFDigitallySigner(
