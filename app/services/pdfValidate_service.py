@@ -14,34 +14,6 @@ def downloadPdf(pdf_url):
         return downloaded_path
 
 
-# class PDFVerifier:
-#     def __init__(self, signed_pdf_url):
-#         self.signed_pdf_path = save_file_in_local()
-#         # self.signed_pdf_path = downloadPdf(signed_pdf_url)
-#         self.signer_email = extract_name_from_pdf(self.signed_pdf_path)
-#         self.unique_id = genIdByEmail(self.signer_email)
-#         self.root_cert_path = "pemFiles/root_cert_" + self.unique_id + ".pem"
-#
-#     def load_root_cert(self):
-#         return load_cert_from_pemder(self.root_cert_path)
-#
-#     def validate_signature(self):
-#         root_cert = self.load_root_cert()
-#         vc = ValidationContext(trust_roots=[root_cert])
-#
-#         with open(self.signed_pdf_path, "rb") as doc:
-#             r = PdfFileReader(doc)
-#             if not r.embedded_signatures:
-#                 raise ValueError("No embedded signature found in the PDF.")
-#             sig = r.embedded_signatures[0]
-#             status = validate_pdf_signature(sig, vc, skip_diff=True)
-#             return status
-#
-#     def print_signature_status(self):
-#         status = self.validate_signature()
-#         removeUnWantedFiles(self.signed_pdf_path)
-#         return status.pretty_print_details()
-
 def save_uploaded_file(file):
     local_path = f"outputs/temp_uploaded_{genIdByEmail(file.filename)}.pdf"
     file.save(local_path)
