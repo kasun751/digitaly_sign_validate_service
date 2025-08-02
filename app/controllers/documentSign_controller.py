@@ -1,41 +1,17 @@
-from flask import jsonify
-from flask import request
-from ..utils import getTokenData
-
-from ..services import PDFDigitallySigner
+from flask import request, jsonify, send_file
+from ..services.pdfDigitallySign_service import PDFSigner
 
 
-def signDocument():
-    payload = getTokenData()
-    print(payload)
-    if not payload['status']:
-        return jsonify({"error": "Invalid token"}), 401
-    print(request.form)
-    signer_email = payload["signer_email"]
-    data = request.get_json()
-    input_pdf_url = data.get("pdfUrl")
-
+def documentSign():
     try:
-        signer = PDFDigitallySigner(
-            input_pdf_url=input_pdf_url,
-            signer_email=signer_email,
-            stamp_image_path="static/imgs/stamp.png"
-        )
+        file = request.files['pdfFile']
+        email = request.form.get("email")
+        if not file or not email:
+            return jsonify({"error": "Missing file or email"}), 400
 
-        # Run conversion first
-        conversion_result = signer.convert_to_standard_pdf()
-        if conversion_result["type"] == "error":
-            return jsonify({"error": conversion_result["message"]}), 400
-
-        # Run signing — this returns a Flask response or error dict
-        sign_response = signer.sign_pdf()
-        if isinstance(sign_response, dict) and sign_response.get("type") == "error":
-            return jsonify({"error": sign_response["message"]}), 500
-
-        # If no error, return the signed PDF response directly
-        return sign_response
+        signer = PDFSigner(file, email)
+        signed_path = signer.sign_pdf()
+        return send_file(signed_path, as_attachment=True)
 
     except Exception as e:
-        return jsonify({
-            "error": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
