@@ -1,45 +1,36 @@
-from app.vault_client import VaultClient
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+import io
+from pyhanko.sign import signers
+from pyhanko.sign.fields import SigFieldSpec
+from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko_certvalidator import ValidationContext
+from app.utils.vault_manager import load_private_key_and_cert  # Custom utility
 
 
 class CertificateAuthorityService:
-    def __init__(self):
-        self.vault = VaultClient()
 
-    def generate_and_store_keys(self, username: str):
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        public_key = private_key.public_key()
+    @staticmethod
+    def sign_pdf(pdf_data: bytes) -> bytes:
+        # Load from Vault (or secure source)
+        private_key, cert = load_private_key_and_cert()
 
-        # Serialize keys
-        private_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
+        signer = signers.SimpleSigner(
+            signing_cert=cert,
+            signing_key=private_key,
+            cert_registry=signers.SimpleCertificateStore([cert]),
+            validation_context=ValidationContext()
         )
 
-        public_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        pdf_reader = IncrementalPdfFileWriter(io.BytesIO(pdf_data))
+
+        signed_pdf = signers.sign_pdf(
+            pdf_reader,
+            signature_meta=signers.PdfSignatureMetadata(field_name="Signature1"),
+            signer=signer,
+            existing_fields_only=False,
+            new_field_spec=SigFieldSpec(sig_field_name="Signature1")
         )
 
-        # Store in Vault
-        self.vault.store_secret(f"certs/{username}/private_key", private_pem.decode())
-        self.vault.store_secret(f"certs/{username}/public_key", public_pem.decode())
-
-        return {
-            "private_key": private_pem.decode(),
-            "public_key": public_pem.decode()
-        }
-
-    def get_private_key(self, username: str):
-        pem = self.vault.read_secret(f"certs/{username}/private_key")
-        if pem:
-            return serialization.load_pem_private_key(pem.encode(), password=None)
-        return None
-
-    def get_public_key(self, username: str):
-        pem = self.vault.read_secret(f"certs/{username}/public_key")
-        if pem:
-            return serialization.load_pem_public_key(pem.encode())
-        return None
+        output = io.BytesIO()
+        signed_pdf.write(output)
+        output.seek(0)
+        return output.read()

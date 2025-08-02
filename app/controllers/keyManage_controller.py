@@ -6,7 +6,6 @@ from app.services import CertificateAuthorityService
 
 def generateKeys():
     payload = getTokenData()
-
     if payload["status"]:
         userName = payload["userName"]
         signer_email = payload["signer_email"]
