@@ -2,7 +2,7 @@ import os
 import requests
 import uuid
 from .idGenerator import genIdByEmail, generate_random_string
-from firebase_admin import storage
+# from firebase_admin import storage
 from flask import request, jsonify
 
 

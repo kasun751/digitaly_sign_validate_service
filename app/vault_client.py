@@ -1,5 +1,6 @@
 import hvac
 
+
 class VaultClient:
     def __init__(self):
         self.client = hvac.Client(url='http://127.0.0.1:8200', token='your-root-token')  # Replace securely
@@ -29,3 +30,18 @@ class VaultClient:
             path=path,
             secret={"private_key": key_pem.decode()}
         )
+
+    def store_cert_bundle(self, unique_id, private_key_pem, cert_pem, ca_chain_pem, root_cert_pem):
+        self.client.secrets.kv.v2.create_or_update_secret(
+            path=f"certs/{unique_id}",
+            secret={
+                "private_key": private_key_pem,
+                "certificate": cert_pem,
+                "ca_chain": ca_chain_pem,
+                "root_cert": root_cert_pem
+            }
+        )
+
+    def load_cert_bundle(self, unique_id):
+        result = self.client.secrets.kv.v2.read_secret_version(path=f"certs/{unique_id}")
+        return result["data"]["data"]

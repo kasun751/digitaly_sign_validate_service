@@ -1,9 +1,7 @@
 from PyPDF2 import PdfReader
 
+
 # import os
-
-
-# from PyPDF2 import PdfReader
 
 def extract_name_from_pdf(pdf_path: str) -> dict:
     try:
