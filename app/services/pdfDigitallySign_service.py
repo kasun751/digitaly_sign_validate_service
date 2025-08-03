@@ -7,6 +7,7 @@ from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign import fields, signers
 from flask import send_file
 from io import BytesIO
+import hvac
 
 from ..utils import (
     removeUnWantedFiles,
@@ -16,6 +17,9 @@ from ..utils import (
     download_pdf_from_url
 )
 from ..config import firebase_config  # ensures firebase_admin.initialize_app() is run
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class PDFDigitallySigner:
@@ -29,14 +33,17 @@ class PDFDigitallySigner:
 
         self.input_pdf_url = input_pdf_url
         self.input_fixed_pdf = f"outputs/final_fixed_{self.unique_id}.pdf"
-        self.input_pdf_location = f"outputs/document-signed_{self.unique_id}.pdf"
-        self.private_key_path = f"pemFiles/private_key_{self.unique_id}.pem"
-        self.cert_path = f"pemFiles/cert_{self.unique_id}.pem"
-        self.ca_chain_paths = [f"pemFiles/ca_chain_{self.unique_id}.pem"]
 
         self.stamp_image_path = stamp_image_path
         self.signature_field_name = signature_field_name
         self.signature_box = signature_box
+
+        # Vault client setup
+        self.vault_client = hvac.Client(
+            url=os.getenv("VAULT_ADDR"),
+            token=os.getenv("VAULT_TOKEN")
+        )
+        self.vault_base_path = f"secret/certs/{self.unique_id}"
 
     def convert_to_standard_pdf(self):
         if self.input_pdf_url.startswith("http://") or self.input_pdf_url.startswith("https://"):
@@ -56,20 +63,32 @@ class PDFDigitallySigner:
         except Exception as e:
             return {"type": "error", "message": f"Cannot convert PDF: {str(e)}"}
 
-    def sign_pdf(self):
-        availability, _ = findCertAvailability(self.signer_email)
-        if not availability:
-            from ..controllers import generateKeys
-            generateKeys()
+    def get_certs_from_vault(self):
+        try:
+            key_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_key")
+            cert_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_cert")
+            chain_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/ca_chain")
 
+            private_key_pem = key_data['data']['data']['content'].encode('utf-8')
+            cert_pem = cert_data['data']['data']['content'].encode('utf-8')
+            # chain_pem = chain_data['data']['data']['content'].encode('utf-8')
+
+            # return private_key_pem, cert_pem, [chain_pem]
+            return private_key_pem, cert_pem
+        except Exception as e:
+            raise RuntimeError(f"Error fetching certificate data from Vault: {str(e)}")
+
+    def sign_pdf(self):
         if not checkFileAvailability(self.input_fixed_pdf):
             return {"type": "error", "message": "PDF Not Found."}
 
         try:
+            # private_key_pem, cert_pem, ca_chain_pems = self.get_certs_from_vault()
+            private_key_pem, cert_pem = self.get_certs_from_vault()
             pdfSigner = signers.SimpleSigner.load(
-                self.private_key_path,
-                self.cert_path,
-                ca_chain_files=self.ca_chain_paths
+                private_key_pem,
+                cert_pem,
+                # ca_chain_pems=ca_chain_pems
             )
 
             with open(self.input_fixed_pdf, 'rb') as inf:
@@ -102,16 +121,10 @@ class PDFDigitallySigner:
                     )
                 )
 
-                # Instead of writing to disk, write to BytesIO
                 signed_pdf_io = BytesIO()
                 pdf_signer.sign_pdf(w, output=signed_pdf_io)
                 signed_pdf_io.seek(0)
 
-                # removeUnWantedFiles(self.input_fixed_pdf)
-                # removeUnWantedFiles(self.input_pdf_url)
-                # removeUnWantedFiles(self.input_pdf_location)
-
-            # Return signed PDF as Flask response
             return send_file(
                 signed_pdf_io,
                 mimetype='application/pdf',

@@ -4,6 +4,11 @@ import uuid
 from .idGenerator import genIdByEmail, generate_random_string
 from firebase_admin import storage
 from flask import request, jsonify
+import hvac
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 
 def checkFileAvailability(path):
@@ -50,23 +55,64 @@ def removeUnWantedFiles(path):
             return False
 
 
-def findCertAvailability(signer_email, path="pemFiles/"):
+# def findCertAvailability(signer_email, path="pemFiles/"):
+#     if signer_email is None:
+#         return None
+#     signerId = genIdByEmail(signer_email)
+#     cert_files = {
+#         "privateKey": "private_key",
+#         "caChain": "ca_chain",
+#         "intermediateCert": "intermediate_cert",
+#         "root_cert": "root_cert"
+#     }
+#
+#     for key, value in cert_files.items():
+#         if os.path.isfile(path + value + "_" + signerId + ".pem"):
+#             pass
+#         else:
+#             return False, "Error : Not Found " + key + "...!!!"
+#     return True, "message: All Certs are Available"
+
+
+def findCertAvailability(signer_email,  vault_base_path="certs/"):
+    vault_url = os.getenv("VAULT_ADDR")
+    vault_token = os.getenv("VAULT_TOKEN")
     if signer_email is None:
-        return None
+        print("Error: Signer email is required.")
+        return None, "Error: Signer email is required."
+    print("ok")
     signerId = genIdByEmail(signer_email)
-    cert_files = {
+    secret_path = f"{vault_base_path}{signerId}"
+
+    cert_keys = {
         "privateKey": "private_key",
         "caChain": "ca_chain",
         "intermediateCert": "intermediate_cert",
         "root_cert": "root_cert"
     }
 
-    for key, value in cert_files.items():
-        if os.path.isfile(path + value + "_" + signerId + ".pem"):
-            pass
-        else:
-            return False, "Error : Not Found " + key + "...!!!"
-    return True, "message: All Certs are Available"
+    try:
+        client = hvac.Client(url=vault_url, token=vault_token)
+
+        if not client.is_authenticated():
+            print("Error: Vault authentication failed.")
+            return False, "Error: Vault authentication failed."
+
+        # Fetch secret from Vault
+        secret_response = client.secrets.kv.v2.read_secret_version(path=secret_path)
+        data = secret_response["data"]["data"]
+
+        # Check if all required keys are present
+        for display_key, actual_key in cert_keys.items():
+            if actual_key not in data:
+                return False, f"Error: Not Found {display_key}...!!!"
+
+        return True, "Message: All certs are available in Vault."
+
+    except hvac.exceptions.InvalidPath:
+        return False, f"Error: Vault path '{secret_path}' does not exist."
+    except Exception as e:
+        return False, f"Error: Exception occurred - {str(e)}"
 
 
 # def download_pdf_from_url(url):
@@ -85,6 +131,7 @@ def findCertAvailability(signer_email, path="pemFiles/"):
 def download_pdf_from_url(url):
     try:
         # Make sure the temp directory exists
+
         temp_dir = 'temp_download'
         os.makedirs(temp_dir, exist_ok=True)
 
