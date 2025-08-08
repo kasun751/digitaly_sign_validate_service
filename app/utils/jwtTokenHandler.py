@@ -1,6 +1,7 @@
 import jwt
+import os
 
-SECRET_KEY = "a-string-secret-at-least-256-bits-long"
+SECRET_KEY = os.getenv("SECRET_KEY", "a-string-secret-at-least-256-bits-long")
 
 
 def jwtTokenValidator(auth_header):
