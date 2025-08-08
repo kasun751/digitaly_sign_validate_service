@@ -63,23 +63,56 @@ class PDFDigitallySigner:
         except Exception as e:
             return {"type": "error", "message": f"Cannot convert PDF: {str(e)}"}
 
+    # def get_certs_from_vault(self):
+    #     try:
+    #         key_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_key")
+    #         cert_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_cert")
+    #         # chain_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/ca_chain")
+    #
+    #         private_key_pem = key_data['data']['data']['content'].encode('utf-8')
+    #         cert_pem = cert_data['data']['data']['content'].encode('utf-8')
+    #         # chain_pem = chain_data['data']['data']['content'].encode('utf-8')
+    #
+    #         # return private_key_pem, cert_pem, [chain_pem]
+    #         return private_key_pem, cert_pem
+    #     except Exception as e:
+    #         raise RuntimeError(f"Error fetching certificate data from Vault: {str(e)}")
+
+    import hvac.exceptions
+
+    # Assuming this function is part of the same class
     def get_certs_from_vault(self):
+
+        from ..controllers.keyManage_controller import generateKeys
+        """
+        Fetches certificate data from Vault. If the secrets don't exist,
+        it calls a function to generate and store them.
+        """
         try:
+            # Attempt to read the private key. If this fails, the secret doesn't exist.
             key_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_key")
+
+            # If the key read is successful, we can assume the cert is also there
+            # and proceed to read it.
             cert_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/signer_cert")
-            chain_data = self.vault_client.secrets.kv.v2.read_secret_version(path=f"{self.vault_base_path}/ca_chain")
 
             private_key_pem = key_data['data']['data']['content'].encode('utf-8')
             cert_pem = cert_data['data']['data']['content'].encode('utf-8')
-            # chain_pem = chain_data['data']['data']['content'].encode('utf-8')
 
-            # return private_key_pem, cert_pem, [chain_pem]
             return private_key_pem, cert_pem
+
+        except hvac.exceptions.InvalidRequest as e:
+            # This exception is raised when the path does not exist.
+            # This is our trigger to generate the certificates.
+            print("Certificates not found. Calling generation function.")
+            return generateKeys()
         except Exception as e:
+            # Catch any other unexpected errors
             raise RuntimeError(f"Error fetching certificate data from Vault: {str(e)}")
 
     def sign_pdf(self):
         if not checkFileAvailability(self.input_fixed_pdf):
+            print("no pdf to sign")
             return {"type": "error", "message": "PDF Not Found."}
 
         try:
