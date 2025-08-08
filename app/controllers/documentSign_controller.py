@@ -1,4 +1,5 @@
-from flask import jsonify, request
+from flask import jsonify, request, send_file
+from io import BytesIO
 from ..utils import getTokenData
 from ..services.pdfDigitallySign_service import PDFDigitallySigner
 
@@ -22,15 +23,20 @@ def signDocument():
             signer_email=signer_email,
             stamp_image_path="static/imgs/stamp.png"
         )
-        res1, res2 = signer.run()
-        status_code = 201 if res2 and res2.get("type") == "success" else 500
-        return jsonify({
-            "conversion_result": res1,
-            "signature_result": res2
-        }), status_code
+
+        # Run conversion first
+        conversion_result = signer.convert_to_standard_pdf()
+        if conversion_result["type"] == "error":
+            return jsonify({"error": conversion_result["message"]}), 400
+
+        # Run signing — this returns either Flask response with PDF or error dict
+        sign_response = signer.sign_pdf()
+        if isinstance(sign_response, dict) and sign_response.get("type") == "error":
+            return jsonify({"error": sign_response["message"]}), 500
+
+        # sign_response is Flask's send_file response with PDF bytes and correct headers
+        return sign_response
 
     except Exception as e:
         print("error:", str(e))
-        return jsonify({
-            "error": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500

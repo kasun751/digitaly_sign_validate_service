@@ -14,6 +14,9 @@ from ..utils.fileUtills import (
 )
 from ..utils.generateIdByEmail import genIdByEmail
 
+from flask import send_file
+from io import BytesIO
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,15 +68,9 @@ class PDFDigitallySigner:
         if not availability:
             from ..controllers.keyManage_controller import generateKeys
             logger.info("Certs missing in Vault (%s). Generating keys: %s", self.signer_email, missing)
-            # Generate keys programmatically using controller/service
-            # generateKeys will store into Vault
-            # gen_response, status = generateKeys(signer_email=self.signer_email, signer_cn=self.signer_email, vault_base_path=self.vault_base_path)
             gen_response, status = generateKeys()
-            # if generateKeys returned a Flask response tuple, handle it
-            if isinstance(gen_response, tuple):
-                # expect (jsonify(...), status_code)
-                if status != 201:
-                    return {"type": "error", "message": "Failed to generate keys before signing."}
+            if isinstance(gen_response, tuple) and status != 201:
+                return {"type": "error", "message": "Failed to generate keys before signing."}
 
         # 2) Load certs from Vault into temp files
         try:
@@ -85,7 +82,6 @@ class PDFDigitallySigner:
             logger.exception("Failed to load certs from Vault into temp files")
             return {"type": "error", "message": f"Failed to load certs: {str(e)}"}
 
-        # 3) Check fixed PDF availability
         if not os.path.isfile(self.input_fixed_pdf):
             # cleanup temp certs
             removeUnWantedFiles(private_key_path)
@@ -93,7 +89,6 @@ class PDFDigitallySigner:
             removeUnWantedFiles(ca_chain_paths[0])
             return {"type": "error", "message": "PDF Not Found."}
 
-        # 4) Do the signing with pyHanko
         try:
             pdfSigner = signers.SimpleSigner.load(
                 private_key_path,
@@ -131,34 +126,29 @@ class PDFDigitallySigner:
                     )
                 )
 
-                os.makedirs(os.path.dirname(self.input_pdf_location), exist_ok=True)
+                signed_pdf_io = BytesIO()
+                pdf_signer.sign_pdf(w, output=signed_pdf_io)
+                signed_pdf_io.seek(0)
 
-                with open(self.input_pdf_location, 'wb') as outf:
-                    pdf_signer.sign_pdf(w, output=outf)
-
-            # 5) Upload to Firebase
-            # public_url = upload_pdf_to_firebase(self.input_pdf_location)
-
-            # 6) Cleanup local files (temp pdfs and temp pem files)
+            # Cleanup temp files after signing
             removeUnWantedFiles(self.input_fixed_pdf)
-            # if input_pdf_url was downloaded to temp_download, remove it too
             if self.input_pdf_url.startswith("temp_download/") or self.input_pdf_url.startswith("temp_"):
                 removeUnWantedFiles(self.input_pdf_url)
-            removeUnWantedFiles(self.input_pdf_location)
             removeUnWantedFiles(private_key_path)
             removeUnWantedFiles(cert_path)
             for ca in ca_chain_paths:
                 removeUnWantedFiles(ca)
 
-            return {
-                "type": "success",
-                "message": "Successfully signed and uploaded PDF.",
-                "firebase_url": public_url
-            }
+            # Return signed PDF as Flask response
+            return send_file(
+                signed_pdf_io,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name='signed_document.pdf'
+            )
 
         except Exception as e:
             logger.exception("Signing failed")
-            # Ensure cleanup of temp certs even on failure
             removeUnWantedFiles(private_key_path)
             removeUnWantedFiles(cert_path)
             for ca in ca_chain_paths:
