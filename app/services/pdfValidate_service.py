@@ -13,7 +13,7 @@ from ..utils import (
 
 
 def save_uploaded_file(file):
-    """Save uploaded file to local temp path."""
+    """Save uploaded file to a local temp path."""
     local_path = f"outputs/temp_uploaded_{genIdByEmail(file.filename)}.pdf"
     file.save(local_path)
     print(f"[DEBUG] Saved uploaded file to: {local_path}")
@@ -22,16 +22,15 @@ def save_uploaded_file(file):
 
 class PDFVerifier:
     def __init__(self, signed_pdf_file):
-        # Save uploaded file
+        """Initialize PDFVerifier with uploaded file."""
         self.signed_pdf_path = save_uploaded_file(signed_pdf_file)
 
         try:
             # Extract signer email from PDF
             response = extract_name_from_pdf(self.signed_pdf_path)
 
-            if not response or not isinstance(response, dict):
-                print("response: ", response)
-                raise ValueError("Unable to read signer information from PDF.")
+            if not isinstance(response, dict):
+                raise ValueError("Invalid response format from extract_name_from_pdf.")
 
             if response.get("error"):
                 raise ValueError(response.get("message") or "Signer information not found.")
@@ -42,8 +41,8 @@ class PDFVerifier:
 
         except Exception as e:
             self.safe_cleanup(self.signed_pdf_path)
-            print(f"Error while extracting signer email: {e}")
-            raise RuntimeError(f"Error while extracting signer email: {e}")
+            print(f"[ERROR] Failed to extract signer email: {e}")
+            raise RuntimeError(f"Failed to extract signer email: {e}")
 
         self.unique_id = genIdByEmail(self.signer_email)
         self.vault_base_path = "certs"
@@ -51,36 +50,37 @@ class PDFVerifier:
     def load_root_cert(self):
         """Load root CA cert from Vault."""
         try:
-            temp_paths = load_certs_from_vault_to_temp(
-                self.signer_email
-            )
-            ca_chain_path = temp_paths.get("ca_chain")
-            if not ca_chain_path:
-                print("CA chain certificate not found in Vault.")
+            temp_paths = load_certs_from_vault_to_temp(self.signer_email)
+            print("[DEBUG] cert_path: ", temp_paths)
+            # ca_chain_path = temp_paths.get("ca_chain")
+            cert_path = temp_paths.get("root_cert")
+            print("[DEBUG] cert_path: ", cert_path)
+
+            if not cert_path:
+                print("[DEBUG] CA chain certificate not found in Vault.")
                 raise FileNotFoundError("CA chain certificate not found in Vault.")
 
-            root_cert = load_cert_from_pemder(ca_chain_path)
+            root_cert = load_cert_from_pemder(cert_path)
 
-            # Cleanup CA chain file
-            self.safe_cleanup(ca_chain_path)
+            # Clean up temporary CA chain file
+            self.safe_cleanup(cert_path)
             return root_cert
 
         except Exception as e:
             raise RuntimeError(f"Failed to load root cert from Vault: {e}")
 
     def validate_signature(self):
-        """Validate the PDF digital signature."""
+        """Validate the PDF's digital signature."""
         root_cert = self.load_root_cert()
         vc = ValidationContext(trust_roots=[root_cert])
 
         with open(self.signed_pdf_path, "rb") as doc:
-            r = PdfFileReader(doc)
-            if not r.embedded_signatures:
+            reader = PdfFileReader(doc)
+            if not reader.embedded_signatures:
                 raise ValueError("No embedded digital signature found in the PDF.")
 
-            sig = r.embedded_signatures[0]
-            status = validate_pdf_signature(sig, vc, skip_diff=True)
-            return status
+            sig = reader.embedded_signatures[0]
+            return validate_pdf_signature(sig, vc, skip_diff=True)
 
     def print_signature_status(self):
         """Run validation and return human-readable result."""

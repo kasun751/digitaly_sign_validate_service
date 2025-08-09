@@ -99,7 +99,7 @@ def load_certs_from_vault_to_temp(signer_email, vault_base_path="certs/"):
     """
     client = get_vault_client()
     signerId = genIdByEmail(signer_email)
-    keys = ["private_key", "cert", "ca_chain"]
+    keys = ["private_key", "cert", "ca_chain", "root_cert"]
 
     temp_paths = {}
     for key in keys:
