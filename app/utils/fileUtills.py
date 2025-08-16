@@ -57,7 +57,71 @@ def download_pdf_from_url(url):
 
 
 # Vault helpers for certs
-def findCertAvailability(signer_email, vault_base_path="certs/"):
+# def findCertAvailability(signer_email, vault_base_path="certs/"):
+#     if not signer_email:
+#         return None, "signer_email required"
+#
+#     client = get_vault_client()
+#     signerId = genIdByEmail(signer_email)
+#
+#     cert_files = {
+#         "privateKey": "private_key",
+#         "caChain": "ca_chain",
+#         "intermediateCert": "intermediate_cert",
+#         "root_cert": "root_cert",
+#         "cert": "cert"
+#     }
+#
+#     missing = []
+#     for key, value in cert_files.items():
+#         vault_path = f"{vault_base_path.rstrip('/')}/{signerId}/{value}"
+#         try:
+#             secret = client.secrets.kv.v2.read_secret_version(path=vault_path)
+#             # KV v2 response contains secret["data"]["data"]
+#             pem_val = secret.get("data", {}).get("data", {}).get("pem")
+#             if not pem_val:
+#                 missing.append(value)
+#         except hvac.exceptions.InvalidPath:
+#             missing.append(value)
+#         except Exception as e:
+#             logger.exception("Vault read error for %s: %s", vault_path, e)
+#             missing.append(value)
+#
+#     if missing:
+#         return False, missing
+#     return True, []
+
+
+# def load_certs_from_vault_to_temp(signer_email, vault_base_path="certs/"):
+#     """
+#     Loads private_key, cert, ca_chain from Vault to secure temp files and returns paths.
+#     Caller MUST delete returned temp files after use (use removeUnWantedFiles()).
+#     """
+#     client = get_vault_client()
+#     signerId = genIdByEmail(signer_email)
+#     keys = ["private_key", "cert", "ca_chain", "root_cert"]
+#
+#     temp_paths = {}
+#     for key in keys:
+#         vault_path = f"{vault_base_path.rstrip('/')}/{signerId}/{key}"
+#         print(vault_path)
+#         secret = client.secrets.kv.v2.read_secret_version(path=vault_path)
+#         pem = secret.get("data", {}).get("data", {}).get("value")
+#         if not pem:
+#             raise FileNotFoundError(f"Missing {key} in Vault at {vault_path}")
+#
+#         # Create a named temp file (not delete-on-close) so pyhanko can open it by path
+#         suffix = ".pem"
+#         tf = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+#         tf.write(pem.encode("utf-8"))
+#         tf.flush()
+#         tf.close()
+#         temp_paths[key] = tf.name
+#
+#     return temp_paths
+
+# Check certificate availability
+def findCertAvailability(signer_email, vault_base_path="certs"):
     if not signer_email:
         return None, "signer_email required"
 
@@ -69,53 +133,55 @@ def findCertAvailability(signer_email, vault_base_path="certs/"):
         "caChain": "ca_chain",
         "intermediateCert": "intermediate_cert",
         "root_cert": "root_cert",
+        "rootKey": "root_key",
         "cert": "cert"
     }
 
     missing = []
     for key, value in cert_files.items():
-        vault_path = f"{vault_base_path.rstrip('/')}/{signerId}/{value}"
         try:
-            secret = client.secrets.kv.v2.read_secret_version(path=vault_path)
-            # KV v2 response contains secret["data"]["data"]
-            pem_val = secret.get("data", {}).get("data", {}).get("pem")
+            secret = client.secrets.kv.v2.read_secret_version(
+                path=f"{signerId}/{value}",
+                mount_point=vault_base_path
+            )
+            pem_val = secret.get("data", {}).get("data", {}).get("value")
             if not pem_val:
                 missing.append(value)
         except hvac.exceptions.InvalidPath:
             missing.append(value)
         except Exception as e:
-            logger.exception("Vault read error for %s: %s", vault_path, e)
+            logger.exception("Vault read error for %s/%s: %s", signerId, value, e)
             missing.append(value)
 
     if missing:
         return False, missing
     return True, []
 
-
-def load_certs_from_vault_to_temp(signer_email, vault_base_path="certs/"):
-    """
-    Loads private_key, cert, ca_chain from Vault to secure temp files and returns paths.
-    Caller MUST delete returned temp files after use (use removeUnWantedFiles()).
-    """
+# Load certificates to temporary files
+def load_certs_from_vault_to_temp(signer_email, vault_base_path="certs"):
     client = get_vault_client()
     signerId = genIdByEmail(signer_email)
-    keys = ["private_key", "cert", "ca_chain", "root_cert"]
+    keys = ["private_key", "cert", "ca_chain", "root_cert", "root_key"]
 
     temp_paths = {}
     for key in keys:
-        vault_path = f"{vault_base_path.rstrip('/')}/{signerId}/{key}"
-        print(vault_path)
-        secret = client.secrets.kv.v2.read_secret_version(path=vault_path)
-        pem = secret.get("data", {}).get("data", {}).get("value")
-        if not pem:
-            raise FileNotFoundError(f"Missing {key} in Vault at {vault_path}")
+        try:
+            secret = client.secrets.kv.v2.read_secret_version(
+                path=f"{signerId}/{key}",
+                mount_point=vault_base_path
+            )
+            pem = secret.get("data", {}).get("data", {}).get("value")
+            if not pem:
+                raise FileNotFoundError(f"Missing {key} in Vault at {vault_base_path}/{signerId}/{key}")
 
-        # Create a named temp file (not delete-on-close) so pyhanko can open it by path
-        suffix = ".pem"
-        tf = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        tf.write(pem.encode("utf-8"))
-        tf.flush()
-        tf.close()
-        temp_paths[key] = tf.name
+            tf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
+            tf.write(pem.encode("utf-8"))
+            tf.flush()
+            tf.close()
+            temp_paths[key] = tf.name
+
+        except Exception as e:
+            logger.exception("Failed to load %s for %s: %s", key, signer_email, e)
+            raise
 
     return temp_paths

@@ -5,7 +5,6 @@ from app.services import CertificateAuthorityService
 
 def generateKeys():
     payload = getTokenData()
-
     if payload["status"]:
         userName = payload["userName"]
         signer_email = payload["signer_email"]
@@ -23,6 +22,7 @@ def generateKeys():
         )
 
         genKeyService.generate_all()
+        print("[DEBUG] Keys Successfully created")
         return jsonify({"message": "Successfully created"}), 201
     else:
         return jsonify(payload), 404
