@@ -1,44 +1,44 @@
 import os
+import logging
 from datetime import datetime
 from PyPDF2 import PdfReader, PdfWriter
 from pyhanko import stamp
 from pyhanko.pdf_utils import images
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign import fields, signers
-from ..utils.fileUtills import upload_pdf_to_firebase
-
-
-from ..utils import (
-    removeUnWantedFiles,
+from ..utils.fileUtills import (
+    download_pdf_from_url,
     findCertAvailability,
-    genIdByEmail,
-    checkFileAvailability,
-    download_pdf_from_url
+    load_certs_from_vault_to_temp,
+    removeUnWantedFiles
 )
-from ..config import firebase_config  # ensures firebase_admin.initialize_app() is run
+from ..utils.generateIdByEmail import genIdByEmail
+
+from flask import send_file
+from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 
 class PDFDigitallySigner:
     def __init__(
         self, input_pdf_url, signer_email, stamp_image_path,
         signature_field_name='Signature',
-        signature_box=(375, 700, 575, 762)
+        signature_box=(375, 700, 575, 762),
+        vault_base_path="certs"
     ):
         self.signer_email = signer_email
         self.unique_id = genIdByEmail(signer_email)
-
         self.input_pdf_url = input_pdf_url
         self.input_fixed_pdf = f"outputs/final_fixed_{self.unique_id}.pdf"
         self.input_pdf_location = f"outputs/document-signed_{self.unique_id}.pdf"
-        self.private_key_path = f"pemFiles/private_key_{self.unique_id}.pem"
-        self.cert_path = f"pemFiles/cert_{self.unique_id}.pem"
-        self.ca_chain_paths = [f"pemFiles/ca_chain_{self.unique_id}.pem"]
-
         self.stamp_image_path = stamp_image_path
         self.signature_field_name = signature_field_name
         self.signature_box = signature_box
+        self.vault_base_path = vault_base_path
 
     def convert_to_standard_pdf(self):
+        # accept remote URL or local path
         if self.input_pdf_url.startswith("http://") or self.input_pdf_url.startswith("https://"):
             downloaded_path = download_pdf_from_url(self.input_pdf_url)
             if not downloaded_path:
@@ -50,26 +50,50 @@ class PDFDigitallySigner:
             writer = PdfWriter()
             for page in reader.pages:
                 writer.add_page(page)
+            os.makedirs(os.path.dirname(self.input_fixed_pdf), exist_ok=True)
             with open(self.input_fixed_pdf, "wb") as f:
                 writer.write(f)
             return {"type": "success", "message": "Successfully converted PDF to signing mode."}
         except Exception as e:
+            logger.exception("PDF conversion error")
             return {"type": "error", "message": f"Cannot convert PDF: {str(e)}"}
 
     def sign_pdf(self):
-        availability, _ = findCertAvailability(self.signer_email)
-        if not availability:
-            from ..controllers import generateKeys
-            generateKeys()
+        # 1) Ensure certs exist in Vault; generate if missing
+        availability, missing = findCertAvailability(self.signer_email, vault_base_path=self.vault_base_path)
+        if availability is None:
+            print("Internal error checking cert availability.")
+            return {"type": "error", "message": "Internal error checking cert availability."}
 
-        if not checkFileAvailability(self.input_fixed_pdf):
+        if not availability:
+            from ..controllers.keyManage_controller import generateKeys
+            logger.info("Certs missing in Vault (%s). Generating keys: %s", self.signer_email, missing)
+            gen_response, status = generateKeys()
+            if isinstance(gen_response, tuple) and status != 201:
+                return {"type": "error", "message": "Failed to generate keys before signing."}
+
+        # 2) Load certs from Vault into temp files
+        try:
+            temp_paths = load_certs_from_vault_to_temp(self.signer_email, vault_base_path=self.vault_base_path)
+            private_key_path = temp_paths["private_key"]
+            cert_path = temp_paths["cert"]
+            ca_chain_paths = [temp_paths["ca_chain"]]
+        except Exception as e:
+            logger.exception("Failed to load certs from Vault into temp files")
+            return {"type": "error", "message": f"Failed to load certs: {str(e)}"}
+
+        if not os.path.isfile(self.input_fixed_pdf):
+            # cleanup temp certs
+            removeUnWantedFiles(private_key_path)
+            removeUnWantedFiles(cert_path)
+            removeUnWantedFiles(ca_chain_paths[0])
             return {"type": "error", "message": "PDF Not Found."}
 
         try:
             pdfSigner = signers.SimpleSigner.load(
-                self.private_key_path,
-                self.cert_path,
-                ca_chain_files=self.ca_chain_paths
+                private_key_path,
+                cert_path,
+                ca_chain_files=ca_chain_paths
             )
 
             with open(self.input_fixed_pdf, 'rb') as inf:
@@ -85,7 +109,7 @@ class PDFDigitallySigner:
 
                 meta = signers.PdfSignatureMetadata(
                     field_name=self.signature_field_name,
-                    location="Uva Wellassa University",
+                    location=os.getenv("SIGN_LOCATION", "Uva Wellassa University"),
                     contact_info=self.signer_email,
                     name=self.signer_email,
                     reason="Document Approval"
@@ -102,27 +126,33 @@ class PDFDigitallySigner:
                     )
                 )
 
-                os.makedirs(os.path.dirname(self.input_pdf_location), exist_ok=True)
+                signed_pdf_io = BytesIO()
+                pdf_signer.sign_pdf(w, output=signed_pdf_io)
+                signed_pdf_io.seek(0)
 
-                with open(self.input_pdf_location, 'wb') as outf:
-                    pdf_signer.sign_pdf(w, output=outf)
-
-            public_url = upload_pdf_to_firebase(self.input_pdf_location)
-
-            # Clean up temp files
+            # Cleanup temp files after signing
             removeUnWantedFiles(self.input_fixed_pdf)
-            removeUnWantedFiles(self.input_pdf_url)
-            removeUnWantedFiles(self.input_pdf_location)
+            if self.input_pdf_url.startswith("temp_download/") or self.input_pdf_url.startswith("temp_"):
+                removeUnWantedFiles(self.input_pdf_url)
+            removeUnWantedFiles(private_key_path)
+            removeUnWantedFiles(cert_path)
+            for ca in ca_chain_paths:
+                removeUnWantedFiles(ca)
 
-            return {
-                "type": "success",
-                "message": "Successfully signed and uploaded PDF.",
-                "firebase_url": public_url
-            }
+            # Return signed PDF as Flask response
+            return send_file(
+                signed_pdf_io,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name='signed_document.pdf'
+            )
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.exception("Signing failed")
+            removeUnWantedFiles(private_key_path)
+            removeUnWantedFiles(cert_path)
+            for ca in ca_chain_paths:
+                removeUnWantedFiles(ca)
             return {"type": "error", "message": f"PDF signing failed: {str(e)}"}
 
     def run(self):
@@ -131,20 +161,3 @@ class PDFDigitallySigner:
             return res1, None
         res2 = self.sign_pdf()
         return res1, res2
-
-
-# Example usage
-# if __name__ == "__main__":
-#     signer = PDFDigitallySigner(
-#         input_pdf_url="https://firebasestorage.googleapis.com/v0/b/uvaexplore.firebasestorage.app/o/toSignDocs%2F1748683475453_A1.pdf?alt=media&token=ca8ff202-bed8-4779-8857-c754a30b5b5a",
-#         # You can use a local file or URL here
-#         input_pdf_location="outputs/document-signed1.pdf",
-#         input_fixed_pdf="unSignDocuments/final_fixed.pdf",
-#         private_key_path="pemFiles/private_key_123456.pem",
-#         cert_path="pemFiles/cert_123456.pem",
-#         ca_chain_paths=["pemFiles/ca_chain_123456.pem"],
-#         stamp_image_path="static/imgs/stamp.png"
-#     )
-#     res1, res2 = signer.run()
-#     print(res1)
-#     print(res2)

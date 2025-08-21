@@ -1,0 +1,9 @@
+*.pdf
+# Ignore virtual environment directory
+.venv/
+
+# Ignore sensitive environment variables file
+.env
+
+__pycache__/
+*.pyc
