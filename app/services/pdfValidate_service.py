@@ -16,7 +16,6 @@ def save_uploaded_file(file):
     """Save uploaded file to a local temp path."""
     local_path = f"outputs/temp_uploaded_{genIdByEmail(file.filename)}.pdf"
     file.save(local_path)
-    print(f"[DEBUG] Saved uploaded file to: {local_path}")
     return local_path
 
 
@@ -41,7 +40,6 @@ class PDFVerifier:
 
         except Exception as e:
             self.safe_cleanup(self.signed_pdf_path)
-            print(f"[ERROR] Failed to extract signer email: {e}")
             raise RuntimeError(f"Failed to extract signer email: {e}")
 
         self.unique_id = genIdByEmail(self.signer_email)
@@ -51,13 +49,10 @@ class PDFVerifier:
         """Load root CA cert from Vault."""
         try:
             temp_paths = load_certs_from_vault_to_temp(self.signer_email)
-            print("[DEBUG] cert_path: ", temp_paths)
             # ca_chain_path = temp_paths.get("ca_chain")
             cert_path = temp_paths.get("root_cert")
-            print("[DEBUG] cert_path: ", cert_path)
 
             if not cert_path:
-                print("[DEBUG] CA chain certificate not found in Vault.")
                 raise FileNotFoundError("CA chain certificate not found in Vault.")
 
             root_cert = load_cert_from_pemder(cert_path)
@@ -95,6 +90,5 @@ class PDFVerifier:
         """Safely remove a file without raising exceptions."""
         try:
             removeUnWantedFiles(path)
-            print(f"[DEBUG] Removed temp file: {path}")
         except Exception as cleanup_err:
             print(f"[WARNING] Failed to remove temp file {path}: {cleanup_err}")

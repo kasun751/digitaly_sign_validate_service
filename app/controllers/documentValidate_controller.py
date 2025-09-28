@@ -58,20 +58,16 @@ def parse_validation_result(res_text: str) -> PDFSignatureInfo:
 def documentVarify():
     try:
         if 'pdfFile' not in request.files:
-            print("[ERROR] Missing file in request.")
             return jsonify({"error": "Missing file"}), 400
 
         file = request.files['pdfFile']
         if file.filename.strip() == '':
-            print("[ERROR] No file selected.")
             return jsonify({"error": "No file selected"}), 400
 
         verifier = PDFVerifier(signed_pdf_file=file)
         res_text = verifier.print_signature_status()
-        print("[DEBUG] ", res_text)
         # Parse into DTO
         dto = parse_validation_result(res_text)
-        print("[DEBUG] ", dto)
 
         return jsonify({"status": "success", "details": dto.to_dict()}), 200
 

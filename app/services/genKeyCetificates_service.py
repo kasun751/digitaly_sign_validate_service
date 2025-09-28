@@ -34,7 +34,7 @@ def get_vault_client():
 # Cert Generation
 # -----------------
 def generate_cert(subject_name, issuer_name, public_key, issuer_key, is_ca=False):
-    print(f"[DEBUG] Generating certificate for {subject_name.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value}")
+    # print(f"[DEBUG] Generating certificate for {subject_name.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value}")
     builder = (
         x509.CertificateBuilder()
         .subject_name(subject_name)
@@ -64,8 +64,8 @@ def generate_cert(subject_name, issuer_name, public_key, issuer_key, is_ca=False
         )
 
     cert = builder.sign(private_key=issuer_key, algorithm=hashes.SHA256())
-    print(
-        f"[DEBUG] Certificate generated successfully for {subject_name.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value}")
+    # print(
+        # f"[DEBUG] Certificate generated successfully for {subject_name.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value}")
     return cert
 
 
@@ -85,11 +85,9 @@ class CertificateAuthorityService:
         self.signer_cn = signer_cn
         self.signer_email = signer_email
         self.unique_id = genIdByEmail(signer_email)
-        print(f"[DEBUG] Unique ID for signer: {self.unique_id}")
         self.client = get_vault_client()
 
     def build_name(self, common_name):
-        print(f"[DEBUG] Building X.509 name for {common_name}")
         return x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, self.country),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, self.state),
@@ -103,20 +101,15 @@ class CertificateAuthorityService:
         """Store PEM data securely in Vault using KV v2"""
         pem_str = pem_bytes.decode("utf-8")
         vault_path = f"{self.unique_id}/{name}"  # KV v2 path is relative to mount
-        print(f"[DEBUG] Storing {name} at {self.vault_base_path}/data/{vault_path}")
         self.client.secrets.kv.v2.create_or_update_secret(
             path=vault_path,
             secret={"value": pem_str},
             mount_point=self.vault_base_path  # Specify mount point explicitly
         )
-        print(f"[DEBUG] Stored {name} successfully")
 
     def generate_all(self):
-        print("[DEBUG] Start key generation")
-
         # Root CA
         root_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        print("[DEBUG] Root key generated")
         root_subject = self.build_name(self.root_cn)
         root_cert = generate_cert(root_subject, root_subject, root_key.public_key(), root_key, is_ca=True)
 
@@ -129,7 +122,6 @@ class CertificateAuthorityService:
 
         # Intermediate CA
         intermediate_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        print("[DEBUG] Intermediate key generated")
         intermediate_subject = self.build_name(self.intermediate_cn)
         intermediate_cert = generate_cert(
             intermediate_subject, root_subject,
@@ -145,7 +137,6 @@ class CertificateAuthorityService:
 
         # Signer Certificate
         signer_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        print("[DEBUG] Signer key generated")
         signer_subject = self.build_name(self.signer_cn)
         signer_cert = generate_cert(
             signer_subject, intermediate_subject,
@@ -165,9 +156,7 @@ class CertificateAuthorityService:
                 root_cert.public_bytes(serialization.Encoding.PEM)
         )
         self.store_in_vault("ca_chain", ca_chain_pem)
-        print("[DEBUG] CA chain stored successfully")
 
-        print("[DEBUG] All keys and certificates generated and stored successfully")
         return {
             "private_key": f"{self.vault_base_path}/{self.unique_id}/private_key",
             "certificate": f"{self.vault_base_path}/{self.unique_id}/cert",

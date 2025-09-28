@@ -62,7 +62,6 @@ class PDFDigitallySigner:
         # 1) Ensure certs exist in Vault; generate if missing
         availability, missing = findCertAvailability(self.signer_email, vault_base_path=self.vault_base_path)
         if availability is None:
-            print("Internal error checking cert availability.")
             return {"type": "error", "message": "Internal error checking cert availability."}
 
         if not availability:

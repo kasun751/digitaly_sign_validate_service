@@ -22,7 +22,6 @@ def generateKeys():
         )
 
         genKeyService.generate_all()
-        print("[DEBUG] Keys Successfully created")
         return jsonify({"message": "Successfully created"}), 201
     else:
         return jsonify(payload), 404
