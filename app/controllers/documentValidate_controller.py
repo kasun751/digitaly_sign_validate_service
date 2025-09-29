@@ -55,6 +55,7 @@ def parse_validation_result(res_text: str) -> PDFSignatureInfo:
 
     return info
 
+
 def documentVarify():
     try:
         if 'pdfFile' not in request.files:
@@ -68,7 +69,6 @@ def documentVarify():
         res_text = verifier.print_signature_status()
         # Parse into DTO
         dto = parse_validation_result(res_text)
-
         return jsonify({"status": "success", "details": dto.to_dict()}), 200
 
     except ValueError as e:
